@@ -13,14 +13,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
-similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-
+# similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
 
 @app.get("/test")
 def test():
-    print('test')
-    response = supabase.table('tbl_question').select('*').eq('id','5bb587eb-abe4-4ef1-99dc-5ee42b6a6ab8').single().execute()
-    return {"success": response}
+    return {"success": 'response'}
 
 class SimilarityRequest(BaseModel):
     question: str
@@ -32,18 +30,12 @@ class SimilarityRequest(BaseModel):
 def compute_similarity(request: SimilarityRequest):
     try:
         # get questions in db
-        # response = supabase.table('tbl_question').select('*').eq('blooms_category',request.blooms_category).eq('repository',request.repository).eq('lesson_id',request.lesson_id).execute()
-
-        websearch_query = ' OR '.join(request.question.split())
-
-        # text search
         response = supabase.table('tbl_question')\
             .select('id, question')\
             .eq('blooms_category',request.blooms_category)\
             .eq('repository',request.repository)\
             .eq('lesson_id',request.lesson_id)\
             .execute()
-            # .text_search('question',f"'{websearch_query}'",{'type':'websearch'})\
 
 
         if not response.data or len(response.data) == 0:
