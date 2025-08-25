@@ -23,8 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
+similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+# similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
 
 @app.get("/test")
 def test():
