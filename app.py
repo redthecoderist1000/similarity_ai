@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
+from fastapi.middleware.cors import CORSMiddleware
 # from sympy import true
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -13,6 +14,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
 
