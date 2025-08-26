@@ -6,6 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
+import gc
+import math
+import numpy as np
+import torch
 
 load_dotenv()
 
@@ -23,8 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-# similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
+# similarity_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+similarity_model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
 
 @app.get("/test")
 def test():
@@ -39,45 +43,67 @@ class SimilarityRequest(BaseModel):
 @app.post("/similarity")
 def compute_similarity(request: SimilarityRequest):
     try:
-        # get questions in db
+        # fetch only needed columns and limit results to protect memory
+        MAX_RESULTS = int(os.getenv("MAX_RESULTS", "500"))  # tune as needed
         response = supabase.table('tbl_question')\
             .select('id, question')\
-            .eq('blooms_category',request.blooms_category)\
-            .eq('repository',request.repository)\
-            .eq('lesson_id',request.lesson_id)\
+            .eq('blooms_category', request.blooms_category)\
+            .eq('repository', request.repository)\
+            .eq('lesson_id', request.lesson_id)\
+            .limit(MAX_RESULTS)\
             .execute()
 
+        if not response.data:
+            return {"status": "success", "count": 0, "results": []}
 
-        if not response.data or len(response.data) == 0:
-            return { 
-                "status": "success",
-                "count": 0,
-                "results": []
-            }
-
-        # format response
         all_questions = [item["question"] for item in response.data]
         all_ids = [item["id"] for item in response.data]
 
-        main_emb = similarity_model.encode(request.question, convert_to_tensor=True)
-        other_embs = similarity_model.encode(all_questions, convert_to_tensor=True)
+        # batch encode to avoid OOM; prefer numpy arrays on CPU
+        batch_size = int(os.getenv("EMB_BATCH_SIZE", "64"))
+        # encode main query
+        with torch.no_grad():
+            main_emb = similarity_model.encode(request.question, convert_to_numpy=True)
 
-        similarities = util.pytorch_cos_sim(main_emb, other_embs)[0].tolist()
+            # encode others in batches and collect numpy embeddings
+            other_embs_list = []
+            for i in range(0, len(all_questions), batch_size):
+                batch = all_questions[i : i + batch_size]
+                emb = similarity_model.encode(batch, convert_to_numpy=True)
+                other_embs_list.append(emb)
+            other_embs = np.vstack(other_embs_list)
 
-        # Combine question, id, and similarity score
+        # compute cosine similarities (numpy) to reduce torch overhead
+        # normalize
+        def normalize(a):
+            norms = np.linalg.norm(a, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            return a / norms
+
+        main_norm = main_emb / (np.linalg.norm(main_emb) or 1.0)
+        other_norms = normalize(other_embs)
+        similarities = (other_norms @ main_norm).tolist()
+
+        # combine, filter and sort
+        threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
         results = [
-            {"id": qid, "question": q, "similarity": sim}
+            {"id": qid, "question": q, "similarity": float(sim)}
             for qid, q, sim in zip(all_ids, all_questions, similarities)
-            if sim >= 0.7 #will return items with greater .5 similarity 
+            if sim >= threshold
         ]
-
-        # Sort results by similarity score in descending order
         results = sorted(results, key=lambda x: x["similarity"], reverse=True)
 
-        return {
-            "status": "success",
-            "count": len(results),
-            "results": results
-        }
+        # cleanup large objects
+        if 'other_questions' in locals():
+            del other_questions
+        del other_embs_list
+        del other_embs
+        del main_emb
+        del all_questions, all_ids, similarities
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        return {"status": "success", "count": len(results), "results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
