@@ -17,8 +17,8 @@ RUN python -m pip install --upgrade pip setuptools wheel
 # Copy requirements
 COPY requirements.txt .
 
-# Pre-install numpy (ensure numpy is available before other packages that import it)
-RUN pip install --no-cache-dir numpy
+# Pre-install a NumPy 1.x compatible wheel
+RUN pip install --no-cache-dir "numpy<2"
 
 # Install remaining Python dependencies (use CPU torch wheel index)
 RUN pip install --no-cache-dir -r requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
